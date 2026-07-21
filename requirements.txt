@@ -1,0 +1,10 @@
+# Core async Telegram bot framework
+aiogram==3.30.0
+
+# Async DB stack
+SQLAlchemy>=2.0.35,<3
+aiosqlite>=0.20,<1
+
+# Configuration
+pydantic-settings>=2.5,<3
+python-dotenv>=1.0,<2
