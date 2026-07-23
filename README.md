@@ -213,8 +213,103 @@ python -m pyflakes app run.py
 - **Добавить роль:** расширь `Role` в `enums.py`, добавь описание в `constants.py`,
   создай сервис действий (по образцу `services/night.py`) и зарегистрируй его
   в `services/orchestrator.py`.
-- **Сменить БД на PostgreSQL:** поменяй `DATABASE_URL` на
-  `postgresql+asyncpg://...` и добавь `asyncpg` в `requirements.txt`.
+- **Сменить БД на PostgreSQL:** `asyncpg` уже в `requirements.txt`. Просто поменяй
+  `DATABASE_URL` (Render делает это автоматически, см. ниже).
+
+## ☁️ Деплой на Render
+
+Бот готов к деплою на **Render Web Service** (free) + **PostgreSQL** (free, 90 дней).
+Архитектура: long-polling + минимальный HTTP-сервер (`/healthz`) для health-check'а
+Render + внешний cron-пинг, чтобы free-тир не уснул.
+
+### Что уже сделано в коде
+- ✅ `app/web.py` — aiohttp HTTP-сервер с `/healthz` (запускается параллельно с polling)
+- ✅ `app/config.py` — автоматическая конвертация `postgres://` → `postgresql+asyncpg://`
+- ✅ `requirements.txt` — `asyncpg` и `aiohttp` добавлены
+- ✅ `render.yaml` — Render Blueprint (сервис + БД в одном файле)
+- ✅ `.github/workflows/keepalive.yml` — GitHub Actions для пинга каждые 10 минут
+
+### Пошаговый гайд
+
+#### Шаг 1. Загрузи проект на GitHub
+```bash
+git init
+git add .
+git commit -m "Mafia bot ready for Render"
+git branch -M main
+git remote add origin https://github.com/<ТВОЙ_НИК>/mafia-bot.git
+git push -u origin main
+```
+
+⚠️ **Проверь, что `.env` НЕ в коммите** (он в `.gitignore`). Если токен случайно
+попал в git — перевыпусти его в @BotFather командой `/revoke`.
+
+#### Шаг 2. Создай сервисы на Render через Blueprint
+1. Зарегистрируйся на [render.com](https://render.com).
+2. Нажми **New** → **Blueprint**.
+3. Выбери свой GitHub-репозиторий с ботом.
+4. Render найдёт `render.yaml` и предложит создать 2 сервиса:
+   - **mafia-bot** (Web Service, free)
+   - **mafia-db** (PostgreSQL, free)
+5. Нажми **Apply**.
+
+#### Шаг 3. Пропишите секреты в Render UI
+В настройках **mafia-bot** → **Environment** добавь:
+- `BOT_TOKEN` = твой токен от @BotFather (отметь как secret)
+
+Render автоматически подставит `DATABASE_URL` и `PORT` — их указывать не нужно.
+
+#### Шаг 4. Дождись деплоя
+- Render скачает зависимости (`pip install -r requirements.txt`)
+- Запустит `python run.py`
+- В логах должно появиться:
+  ```
+  Health-check server listening on 0.0.0.0:10000
+  Starting bot polling…
+  Run polling for bot @<твой_бот>
+  ```
+- Статус сервиса станет **Live** (зелёный).
+
+#### Шаг 5. Отключи Group Privacy
+Без этого бот не увидит команды в группах:
+1. Открой [@BotFather](https://t.me/BotFather)
+2. `/setprivacy` → выбери своего бота → **Disable**
+
+#### Шаг 6. Настрой keep-alive (чтобы free-тир не уснул)
+Render free Web Service засыпает через 15 мин без HTTP-запросов. Выбери **один** из вариантов:
+
+**Вариант A — UptimeRobot (проще):**
+1. Зарегистрируйся на [uptimerobot.com](https://uptimerobot.com).
+2. Add New Monitor → тип `HTTP(s)`.
+3. URL: `https://mafia-bot-xxxx.onrender.com/healthz` (адрес из Render UI).
+4. Интервал: каждые 10 минут.
+
+**Вариант B — GitHub Actions (уже настроен в репо):**
+1. В GitHub открой **Settings** → **Secrets and variables** → **Actions**.
+2. Add secret: `RENDER_URL` = `https://mafia-bot-xxxx.onrender.com` (без `/healthz`).
+3. Workflow будет пинговать Render каждые 10 минут автоматически.
+
+### Локальный запуск (для разработки)
+Без Render всё работает на SQLite:
+```bash
+cp .env.example .env
+# в .env оставь: DATABASE_URL=sqlite+aiosqlite:///mafia.db
+pip install -r requirements.txt
+python run.py
+```
+
+### Ограничения free-тарифа Render
+- **Web Service free:** 750 часов/месяц (хватит на 1 сервис 24/7).
+- **PostgreSQL free:** 90 дней, потом $7/мес. Можно пересоздать БД или перейти на [Neon](https://neon.tech)/[Supabase](https://supabase.com) (free навсегда) — просто замени `DATABASE_URL`.
+- **Память:** 512 MB RAM — более чем достаточно для бота.
+- **Холодный старт:** после сна сервис просыпается 30-50 сек, первое сообщение может задержаться.
+
+### Миграция на внешний PostgreSQL (Neon/Supabase)
+Если Render PostgreSQL истекла:
+1. Создай БД на [neon.tech](https://neon.tech) (бесплатно).
+2. Скопируй connection string вида `postgres://...`.
+3. В Render → mafia-bot → Environment → `DATABASE_URL` = вставь этот URL.
+4. Перезапусти сервис. Старые данные не перенесутся автоматически — просто начни с чистой БД.
 
 ## 📄 Лицензия
 

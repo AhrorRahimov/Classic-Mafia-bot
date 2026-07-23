@@ -4,11 +4,6 @@ Each active role gets a private message with targets during the night.
 Selecting a target triggers the corresponding callback here. The
 callback resolves the right ``GameSession`` regardless of which chat
 the update came from — we look it up by the acting user.
-
-Note: we cannot use ``chat_id`` filters because these callbacks arrive
-in the bot's private chat, not the group. Instead we search the
-``LobbyService`` registry for any session containing the user as an
-alive role-bearer.
 """
 from __future__ import annotations
 
@@ -19,14 +14,15 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.repo import StatsRepo
 from app.game.exceptions import GameError
+from app.i18n import Translator, get_i18n
 from app.keyboards.callbacks import CallbackAction, parse_callback
 from app.services.lobby import LobbyService
 from app.services.night import NightService
 from app.services.orchestrator import end_night
 from app.services.session import GameSession
 from app.services.timer import TimerManager
-from app.texts import NIGHT_DONE_PM
 
 logger = logging.getLogger(__name__)
 router = Router(name="night")
@@ -42,6 +38,20 @@ def _find_session_for_user(
     return None
 
 
+async def _resolve_t(
+    session: AsyncSession, user_id: int, fallback_t: Translator
+) -> Translator:
+    """Build a translator in the user's own language (for PMs).
+
+    Falls back to the handler's injected translator if the lookup fails.
+    """
+    try:
+        lang = await StatsRepo(session).get_language(user_id)
+        return get_i18n().translator_for(lang)
+    except Exception:  # noqa: BLE001
+        return fallback_t
+
+
 # --- Mafia kill --------------------------------------------------------
 
 @router.callback_query(lambda c: c.data and c.data.startswith(f"{CallbackAction.MAFIA_KILL}:"))
@@ -51,10 +61,11 @@ async def cb_mafia_kill(
     timers: TimerManager,
     session: AsyncSession,
     bot: Bot,
+    t: Translator,
 ) -> None:
     game = _find_session_for_user(games, query.from_user.id)
     if game is None or game.phase.value != "night":
-        await query.answer("Сейчас не время для этого действия.", show_alert=True)
+        await query.answer(t("errors.wrong_time_action"), show_alert=True)
         return
 
     _, target_id = parse_callback(query.data)
@@ -63,13 +74,13 @@ async def cb_mafia_kill(
         async with game.lock:
             service.mafia_kill(query.from_user.id, target_id)
     except GameError as exc:
-        await query.answer(f"⚠️ {exc}", show_alert=True)
+        await query.answer(f"⚠️ {t(exc.key, **exc.kwargs)}", show_alert=True)
         return
 
     await query.answer()
     try:
         await query.message.edit_text(
-            f"🔴 Вы выбрали жертву.\n{NIGHT_DONE_PM}"
+            t("night.mafia_done_pm", footer=t("night.action_done"))
         )
     except TelegramBadRequest:
         pass
@@ -86,27 +97,27 @@ async def cb_detective_check(
     timers: TimerManager,
     session: AsyncSession,
     bot: Bot,
+    t: Translator,
 ) -> None:
     game = _find_session_for_user(games, query.from_user.id)
     if game is None or game.phase.value != "night":
-        await query.answer("Сейчас не время для этого действия.", show_alert=True)
+        await query.answer(t("errors.wrong_time_action"), show_alert=True)
         return
 
     _, target_id = parse_callback(query.data)
     service = NightService(game)
     try:
         async with game.lock:
-            # Result is revealed when the night resolves (see orchestrator).
             service.detective_check(query.from_user.id, target_id)
     except GameError as exc:
-        await query.answer(f"⚠️ {exc}", show_alert=True)
+        await query.answer(f"⚠️ {t(exc.key, **exc.kwargs)}", show_alert=True)
         return
 
-    # The full verdict is revealed when the night resolves — here we just
-    # acknowledge the action so the player knows their pick was accepted.
-    await query.answer("Проверка проведена. Результат — после рассвета.", show_alert=False)
+    await query.answer(t("night.detective_toast_pending"), show_alert=False)
     try:
-        await query.message.edit_text(f"🔵 Проверка отправлена.\n{NIGHT_DONE_PM}")
+        await query.message.edit_text(
+            t("night.detective_done_pm", footer=t("night.action_done"))
+        )
     except TelegramBadRequest:
         pass
 
@@ -122,10 +133,11 @@ async def cb_doctor_heal(
     timers: TimerManager,
     session: AsyncSession,
     bot: Bot,
+    t: Translator,
 ) -> None:
     game = _find_session_for_user(games, query.from_user.id)
     if game is None or game.phase.value != "night":
-        await query.answer("Сейчас не время для этого действия.", show_alert=True)
+        await query.answer(t("errors.wrong_time_action"), show_alert=True)
         return
 
     _, target_id = parse_callback(query.data)
@@ -134,12 +146,14 @@ async def cb_doctor_heal(
         async with game.lock:
             service.doctor_heal(query.from_user.id, target_id)
     except GameError as exc:
-        await query.answer(f"⚠️ {exc}", show_alert=True)
+        await query.answer(f"⚠️ {t(exc.key, **exc.kwargs)}", show_alert=True)
         return
 
     await query.answer()
     try:
-        await query.message.edit_text(f"🟡 Пациент выбран.\n{NIGHT_DONE_PM}")
+        await query.message.edit_text(
+            t("night.doctor_done_pm", footer=t("night.action_done"))
+        )
     except TelegramBadRequest:
         pass
 

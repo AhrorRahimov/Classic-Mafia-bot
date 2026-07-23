@@ -33,19 +33,19 @@ class NightService:
     def _require_alive_actor(self, user_id: int, role: Role) -> PlayerState:
         player = self._s.get(user_id)
         if player is None:
-            raise RoleError("Ты не участвуешь в этой игре.")
+            raise RoleError("errors.not_participant")
         if not player.is_alive:
-            raise RoleError("Мертвые не говорят.")
+            raise RoleError("errors.dead_no_speak")
         if player.role is not role:
-            raise RoleError("Эта роль не может выполнять это действие.")
+            raise RoleError("errors.wrong_role")
         return player
 
     def _require_alive_target(self, target_id: int) -> PlayerState:
         target = self._s.get(target_id)
         if target is None:
-            raise TargetError("Цель не найдена.")
+            raise TargetError("errors.target_not_found")
         if not target.is_alive:
-            raise TargetError("Этот игрок уже мертв.")
+            raise TargetError("errors.target_already_dead")
         return target
 
     def has_acted(self, user_id: int) -> bool:
@@ -58,9 +58,9 @@ class NightService:
         self._require_alive_actor(actor_id, Role.MAFIA)
         target = self._require_alive_target(target_id)
         if target.role is Role.MAFIA:
-            raise TargetError("Мафия не может убивать своих.")
+            raise TargetError("errors.mafia_cant_kill_self_team")
         if actor_id in self._s.night.acted:
-            raise RoleError("Ты уже сделал свой ход этой ночью.")
+            raise RoleError("errors.already_acted_night")
 
         # Team vote: store per-mafia choice; majority wins (tie -> last wins).
         self._s.night.mafia_votes[actor_id] = target_id
@@ -73,11 +73,11 @@ class NightService:
         self._require_alive_actor(actor_id, Role.DETECTIVE)
         target = self._require_alive_target(target_id)
         if actor_id in self._s.night.acted:
-            raise RoleError("Ты уже проверял кого-то этой ночью.")
+            raise RoleError("errors.already_checked_night")
 
         is_mafia = target.role is Role.MAFIA
         self._s.night.detective_target = target_id
-        # Persist the latest check on the session (not on NightActions,
+        # Persist the latest check on the (not on NightActions,
         # which is reset each night) so the orchestrator can reveal it.
         self._s.last_detective_check = (target_id, is_mafia)
         self._s.night.acted.add(actor_id)
@@ -88,13 +88,13 @@ class NightService:
         self._require_alive_actor(actor_id, Role.DOCTOR)
         self._require_alive_target(target_id)
         if actor_id in self._s.night.acted:
-            raise RoleError("Ты уже лечил кого-то этой ночью.")
+            raise RoleError("errors.already_healed_night")
         # Doctor cannot heal the same player two nights in a row.
         if (
             self._s.last_healed is not None
             and target_id == self._s.last_healed
         ):
-            raise TargetError("Нельзя лечить того же игрока два раза подряд.")
+            raise TargetError("errors.doctor_same_target_twice")
 
         self._s.night.doctor_target = target_id
         self._s.night.acted.add(actor_id)

@@ -1,0 +1,25 @@
+# Pings the Render Web Service every 10 minutes so the free tier
+# does not fall asleep. Free alternative to UptimeRobot / cron-job.org.
+#
+# IMPORTANT: replace RENDER_URL below with your actual service URL
+# (e.g. https://mafia-bot-xxxx.onrender.com). You can find it in
+# Render → your web service → top of the page.
+#
+# The schedule uses UTC. `*/10 * * * *` = every 10 minutes.
+
+name: Keep Render awake
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint
+        run: |
+          curl -fsS --max-time 30 "${{ secrets.RENDER_URL }}/healthz" \
+            && echo "Ping OK" \
+            || echo "Ping FAILED (service may be spinning up)"

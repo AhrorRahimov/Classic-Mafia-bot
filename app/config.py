@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,6 +23,24 @@ class Settings(BaseSettings):
     )
     admin_id: int = Field(default=0, alias="ADMIN_ID")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+
+    # Render injects PORT; we fall back to 8080 for local dev.
+    web_port: int = Field(default=8080, alias="PORT")
+
+    @field_validator("database_url", mode="after")
+    @classmethod
+    def _normalize_database_url(cls, value: str) -> str:
+        """Convert Render's ``postgres://`` URL into the asyncpg form.
+
+        Render injects ``DATABASE_URL`` as ``postgres://user:pass@host/db``
+        (sync driver convention). SQLAlchemy needs an explicit async driver:
+        ``postgresql+asyncpg://...``. This keeps local SQLite URLs untouched.
+        """
+        if value.startswith("postgres://"):
+            return "postgresql+asyncpg://" + value[len("postgres://"):]
+        if value.startswith("postgresql://"):
+            return "postgresql+asyncpg://" + value[len("postgresql://"):]
+        return value
 
     @property
     def is_admin_configured(self) -> bool:

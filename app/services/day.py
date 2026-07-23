@@ -29,14 +29,14 @@ class DayService:
     def cast_vote(self, voter_id: int, target_id: int) -> None:
         voter = self._s.get(voter_id)
         if voter is None:
-            raise VoteError("Ты не участвуешь в этой игре.")
+            raise VoteError("errors.not_participant")
         if not voter.is_alive:
-            raise VoteError("Мертвые не голосуют.")
+            raise VoteError("errors.dead_no_vote")
         target = self._s.get(target_id)
         if target is None or not target.is_alive:
-            raise VoteError("Голосовать можно только за живых игроков.")
+            raise VoteError("errors.vote_alive_only")
         if target_id == voter_id:
-            raise VoteError("Нельзя голосовать за самого себя.")
+            raise VoteError("errors.no_self_vote")
 
         # Allow changing the vote until phase ends.
         self._s.day.cast(voter_id, target_id)

@@ -131,6 +131,32 @@ class StatsRepo:
     async def get(self, user_id: int) -> Optional[UserStats]:
         return await self._session.get(UserStats, user_id)
 
+    async def get_language(self, user_id: int) -> str:
+        """Return the user's language code, defaulting to ``ru``.
+
+        Upserts the row if missing so the default language is persisted.
+        """
+        stats = await self._session.get(UserStats, user_id)
+        if stats is None:
+            stats = UserStats(
+                user_id=user_id, full_name=f"User {user_id}", language="ru"
+            )
+            self._session.add(stats)
+            await self._session.flush()
+        return stats.language or "ru"
+
+    async def set_language(self, user_id: int, language: str) -> None:
+        """Persist the user's preferred language. Upserts the row."""
+        stats = await self._session.get(UserStats, user_id)
+        if stats is None:
+            stats = UserStats(
+                user_id=user_id, full_name=f"User {user_id}", language=language
+            )
+            self._session.add(stats)
+        else:
+            stats.language = language
+        await self._session.flush()
+
 
 # Re-export winner enum alias to avoid circular imports in callers.
 __all__ = ["GameRepo", "PlayerRepo", "StatsRepo", "Winner"]

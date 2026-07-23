@@ -1,8 +1,8 @@
 """Day vote callback (private chat).
 
-Votes also arrive in the bot's private chat via inline keyboards,
-just like night actions. We keep them in a dedicated module for
-conceptual clarity even though the wiring is identical.
+Votes arrive in the bot's private chat via inline keyboards, just like
+night actions. We keep them in a dedicated module for conceptual
+clarity even though the wiring is identical.
 """
 from __future__ import annotations
 
@@ -14,13 +14,13 @@ from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.game.exceptions import GameError
+from app.i18n import Translator
 from app.keyboards.callbacks import CallbackAction, parse_callback
 from app.services.day import DayService
 from app.services.lobby import LobbyService
 from app.services.orchestrator import end_vote
 from app.services.session import GameSession
 from app.services.timer import TimerManager
-from app.texts import VOTE_DONE_PM
 
 logger = logging.getLogger(__name__)
 router = Router(name="day")
@@ -43,10 +43,11 @@ async def cb_vote(
     timers: TimerManager,
     session: AsyncSession,
     bot: Bot,
+    t: Translator,
 ) -> None:
     game = _find_session_for_user(games, query.from_user.id)
     if game is None or game.phase.value != "day_vote":
-        await query.answer("Сейчас не время голосовать.", show_alert=True)
+        await query.answer(t("errors.wrong_time_vote"), show_alert=True)
         return
 
     _, target_id = parse_callback(query.data)
@@ -55,12 +56,12 @@ async def cb_vote(
         async with game.lock:
             service.cast_vote(query.from_user.id, target_id)
     except GameError as exc:
-        await query.answer(f"⚠️ {exc}", show_alert=True)
+        await query.answer(f"⚠️ {t(exc.key, **exc.kwargs)}", show_alert=True)
         return
 
     await query.answer()
     try:
-        await query.message.edit_text(VOTE_DONE_PM)
+        await query.message.edit_text(t("day.vote_done_pm"))
     except TelegramBadRequest:
         pass
 

@@ -26,6 +26,9 @@ class CallbackAction(StrEnum):
     # Day
     VOTE = "vote"
 
+    # Settings
+    SET_LANG = "set_lang"
+
 
 def parse_callback(data: str) -> tuple[CallbackAction, int]:
     """Parse ``<action>:<arg>`` into ``(CallbackAction, int)``.

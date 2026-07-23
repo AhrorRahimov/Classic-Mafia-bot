@@ -17,7 +17,7 @@ from app.db.repo import GameRepo, PlayerRepo, StatsRepo
 from app.game.balance import assign_roles
 from app.game.constants import MAX_PLAYERS, MIN_PLAYERS
 from app.game.enums import GameStatus, Role
-from app.game.exceptions import LobbyError
+from app.game.exceptions import CREATOR_LEFT, LobbyError
 from app.services.session import GameSession, PlayerState
 
 logger = logging.getLogger(__name__)
@@ -55,10 +55,10 @@ class LobbyService:
     ) -> Game:
         """Create a new lobby. Raises if another game is active in the chat."""
         if self.has(chat_id):
-            raise LobbyError("В этом чате уже идёт игра или открыто лобби.")
+            raise LobbyError("errors.game_already_active")
         active = await GameRepo(db).get_active(chat_id)
         if active is not None:
-            raise LobbyError("В этом чате уже есть активная игра в БД.")
+            raise LobbyError("errors.game_already_active")
 
         game = await GameRepo(db).create(chat_id=chat_id, creator_id=creator_id)
         await PlayerRepo(db).add(
@@ -84,9 +84,9 @@ class LobbyService:
         players = await PlayerRepo(db).list_by_game(game.id)
 
         if any(p.user_id == user_id for p in players):
-            raise LobbyError("Ты уже в лобби.")
+            raise LobbyError("errors.already_in_lobby")
         if len(players) >= MAX_PLAYERS:
-            raise LobbyError(f"Лобби заполнено (максимум {MAX_PLAYERS} игроков).")
+            raise LobbyError("errors.lobby_full", max=MAX_PLAYERS)
 
         await PlayerRepo(db).add(
             game_id=game.id, user_id=user_id, full_name=full_name
@@ -107,12 +107,12 @@ class LobbyService:
         players = await PlayerRepo(db).list_by_game(game.id)
         player = next((p for p in players if p.user_id == user_id), None)
         if player is None:
-            raise LobbyError("Тебя нет в этом лобби.")
+            raise LobbyError("errors.not_in_lobby")
 
         # Creator leaving dissolves the lobby.
         if game.creator_id == user_id:
             await self._cancel_lobby(db, chat_id, game)
-            raise LobbyError("_creator_left_")
+            raise LobbyError(CREATOR_LEFT)
 
         await PlayerRepo(db).remove(player)
         await db.commit()
@@ -125,7 +125,7 @@ class LobbyService:
         """Cancel the lobby (creator-only)."""
         game = await self._require_lobby(db, chat_id)
         if game.creator_id != by_user_id:
-            raise LobbyError("Отменить лобби может только его создатель.")
+            raise LobbyError("errors.only_creator_cancel")
         await self._cancel_lobby(db, chat_id, game)
 
     async def start(
@@ -141,12 +141,12 @@ class LobbyService:
         if game.creator_id not in {p.user_id for p in players}:
             # Edge case: creator left but lobby still tracked. Reset.
             await self._cancel_lobby(db, chat_id, game)
-            raise LobbyError("Создатель покинул лобби. Создай новую игру.")
+            raise LobbyError("lobby.creator_left_new_game")
 
         count = len(players)
         if not (MIN_PLAYERS <= count <= MAX_PLAYERS):
             raise LobbyError(
-                f"Нужно {MIN_PLAYERS}–{MAX_PLAYERS} игроков. Сейчас: {count}."
+                "errors.need_players_range", min=MIN_PLAYERS, max=MAX_PLAYERS, count=count
             )
 
         # Assign roles.
@@ -186,7 +186,7 @@ class LobbyService:
     async def _require_lobby(self, db: AsyncSession, chat_id: int) -> Game:
         game = await GameRepo(db).get_active(chat_id)
         if game is None or game.status != GameStatus.LOBBY:
-            raise LobbyError("В этом чате нет открытого лобби.")
+            raise LobbyError("errors.lobby_not_found")
         return game
 
     async def _cancel_lobby(
